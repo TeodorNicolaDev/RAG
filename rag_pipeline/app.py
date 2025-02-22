@@ -2,7 +2,12 @@
 from fastapi import FastAPI, File, UploadFile
 from ingestion import extract_text_from_pdf, chunk_text
 from query import is_trivial_query, transform_query, classify_query_with_mistral
-
+from search import (
+    get_embedding_from_mistral, 
+    search_chunks, 
+    merge_chunks,
+    EMBEDDINGS_DB  # if needed for debugging or updating
+)
 
 app = FastAPI()
 
