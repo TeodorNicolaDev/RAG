@@ -1,5 +1,8 @@
 import fitz  # PyMuPDF
 
+################################################################################
+# Function: extract_text_from_pdf
+################################################################################
 def extract_text_from_pdf(pdf_file):
     """
     Extracts text from a PDF file.
@@ -20,7 +23,7 @@ def extract_text_from_pdf(pdf_file):
         return ""
     
 ################################################################################
-
+# Function: chunk_text
 ################################################################################
     
 def chunk_text(text, chunk_size=300, overlap=50):
