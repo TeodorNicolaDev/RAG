@@ -1,7 +1,9 @@
 fastapi
+mistralai
 uvicorn
 pytest
 PyMuPDF
 requests
 numpy
 faiss-cpu
+scikit-learn
