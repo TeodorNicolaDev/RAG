@@ -1,0 +1,27 @@
+import os
+from rag_pipeline.generation import generate_answer
+
+def test_generate_trivial_answer():
+    # Set the API key in the environment for testing.
+    os.environ["MISTRAL_API_KEY"] = "r6cJTcdQ93jseOPcR8jlSgWDC87PmREn"
+    
+    query = "hello"
+    # For trivial queries, context is empty.
+    answer = generate_answer("", query)
+    print("Trivial answer:", answer)
+    # Expect some kind of greeting response.
+    assert answer is not None and len(answer) > 0, "No answer generated for trivial query."
+
+def test_generate_knowledge_answer():
+    os.environ["MISTRAL_API_KEY"] = "r6cJTcdQ93jseOPcR8jlSgWDC87PmREn"
+    
+    context = "Quantum physics is the study of matter and energy at the smallest scales."
+    query = "What is quantum physics?"
+    answer = generate_answer(context, query)
+    print("Knowledge answer:", answer)
+    # Expect a non-empty answer generated based on the context.
+    assert answer is not None and len(answer) > 0, "No answer generated when context is provided."
+
+if __name__ == "__main__":
+    test_generate_trivial_answer()
+    test_generate_knowledge_answer()

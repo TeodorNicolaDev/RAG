@@ -2,8 +2,8 @@ import time
 import tempfile
 import fitz  # PyMuPDF
 from fastapi.testclient import TestClient
-from app import app
-from search import EMBEDDINGS_DB
+from rag_pipeline.app import app
+from rag_pipeline.search import TEXT_CHUNKS, EMBEDDINGS_LIST
 
 client = TestClient(app)
 
@@ -22,8 +22,9 @@ def create_sample_pdf():
     return temp_pdf.name
 
 def test_ingest_endpoint():
-    # Clear the global embeddings store before running the test.
-    EMBEDDINGS_DB.clear()
+    # Clear the global storage before running the test.
+    TEXT_CHUNKS.clear()
+    EMBEDDINGS_LIST.clear()
     
     sample_pdf_path = create_sample_pdf()
     print(f"Created sample PDF at: {sample_pdf_path}")
@@ -46,6 +47,9 @@ def test_ingest_endpoint():
     assert "total_chunks" in data, "Response JSON missing 'total_chunks' key."
     assert data["total_chunks"] > 0, "Expected at least one chunk to be processed."
     
-    print("Current state of EMBEDDINGS_DB:")
-    print(EMBEDDINGS_DB)
-    assert len(EMBEDDINGS_DB) == data["total_chunks"], "Global EMBEDDINGS_DB should match total chunks processed."
+    print("Current state of TEXT_CHUNKS and EMBEDDINGS_LIST:")
+    print("TEXT_CHUNKS:", TEXT_CHUNKS)
+    print("EMBEDDINGS_LIST:", EMBEDDINGS_LIST)
+    # Verify that both lists have the same length as total_chunks.
+    assert len(TEXT_CHUNKS) == data["total_chunks"], "TEXT_CHUNKS should match total chunks processed."
+    assert len(EMBEDDINGS_LIST) == data["total_chunks"], "EMBEDDINGS_LIST should match total chunks processed."

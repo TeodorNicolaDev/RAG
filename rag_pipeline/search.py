@@ -1,119 +1,93 @@
 import os
 import numpy as np
+import faiss
 from mistralai import Mistral
 
-# Global dictionary to store embeddings for each text chunk.
-# Format: {chunk_id: {"text": <text_chunk>, "embedding": <embedding_vector>}}
-EMBEDDINGS_DB = {}
+# Global lists for storing text chunks and embeddings.
+TEXT_CHUNKS = []
+EMBEDDINGS_LIST = []
 
-# Initialize Mistral client using the API key from environment variables.
+# Set up the Mistral embedding client.
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "r6cJTcdQ93jseOPcR8jlSgWDC87PmREn")
 MODEL_NAME = "mistral-embed"
-mistral_client = Mistral(api_key=MISTRAL_API_KEY)
+client = Mistral(api_key=MISTRAL_API_KEY)
 
-# ------------------------------------------------------------------------------
-# Function: get_embedding_from_mistral
-# ------------------------------------------------------------------------------
 def get_embedding_from_mistral(text: str):
     """
-    Uses the Mistral Embeddings API to generate an embedding for the given text.
-    
-    :param text: The text to embed.
-    :return: A numpy array representing the embedding vector (dimension 1024).
+    Uses Mistral's Embeddings API to generate a 1024-dimensional embedding.
     """
     try:
-        response = mistral_client.embeddings.create(
+        response = client.embeddings.create(
             model=MODEL_NAME,
-            inputs=[text],
+            inputs=[text]
         )
-        print("Mistral embedding API response:", response)
-        # Extract the embedding from the response.
-        # The response is an EmbeddingResponse object; we assume it has a 'data' attribute which is a list of Data objects.
-        # Each Data object has an 'embedding' attribute that is a list of floats.
         embedding = response.data[0].embedding
-        return np.array(embedding)
+        return np.array(embedding, dtype="float32")
     except Exception as e:
         print(f"Error getting embedding from Mistral: {e}")
         return None
 
-# ------------------------------------------------------------------------------
-# Function: cosine_similarity
-# ------------------------------------------------------------------------------
-def cosine_similarity(vec1, vec2):
+def add_chunk(text: str, embedding: np.array):
     """
-    Computes cosine similarity between two vectors.
-    
-    :param vec1: A numpy array.
-    :param vec2: A numpy array.
-    :return: Cosine similarity score.
+    Adds a text chunk and its embedding to the global lists.
     """
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
-    if norm1 == 0 or norm2 == 0:
+    TEXT_CHUNKS.append(text)
+    EMBEDDINGS_LIST.append(embedding)
+
+def build_faiss_index():
+    """
+    Builds and returns a Faiss index from stored embeddings.
+    """
+    if not EMBEDDINGS_LIST:
+        return None
+    embeddings_np = np.vstack(EMBEDDINGS_LIST).astype("float32")
+    d = embeddings_np.shape[1]
+    index = faiss.IndexFlatL2(d)
+    index.add(embeddings_np)
+    return index
+
+def simple_keyword_score(chunk_text: str, query_text: str) -> float:
+    """
+    Computes a simple keyword matching score based on word overlap.
+    """
+    query_words = set(query_text.lower().split())
+    chunk_words = set(chunk_text.lower().split())
+    if not query_words:
         return 0.0
-    return np.dot(vec1, vec2) / (norm1 * norm2)
+    return len(query_words.intersection(chunk_words)) / len(query_words)
 
-# ------------------------------------------------------------------------------
-# Function: keyword_score
-# ------------------------------------------------------------------------------
-def keyword_score(chunk_text: str, query: str) -> float:
+def search_chunks(query_embedding, query_text, candidate_k=10, final_k=5, alpha=0.7):
     """
-    Computes a simple keyword matching score between the chunk and the query.
+    Performs two-stage retrieval:
+      1. Retrieve candidate_k chunks via Faiss using L2 distance.
+      2. Re-rank candidates based on a weighted combination of cosine similarity and keyword matching.
+    Returns the top final_k chunks.
+    """
+    index = build_faiss_index()
+    if index is None:
+        return []
     
-    :param chunk_text: The text chunk.
-    :param query: The query text.
-    :return: A normalized score based on keyword overlap.
-    """
-    query_words = set(query.lower().split())
-    chunk_words = chunk_text.lower().split()
-    if not chunk_words:
-        return 0.0
-    count = sum(1 for word in chunk_words if word in query_words)
-    return count / len(chunk_words)
-
-# ------------------------------------------------------------------------------
-# Function: combined_score
-# ------------------------------------------------------------------------------
-def combined_score(semantic, keyword, alpha=0.7):
-    """
-    Combines the semantic and keyword scores using a weighted sum.
+    query_embedding = np.array([query_embedding]).astype("float32")
+    distances, indices = index.search(query_embedding, candidate_k)
     
-    :param semantic: Cosine similarity score.
-    :param keyword: Keyword matching score.
-    :param alpha: Weight for semantic similarity (default 0.7).
-    :return: The combined score.
-    """
-    return alpha * semantic + (1 - alpha) * keyword
-
-# ------------------------------------------------------------------------------
-# Function: search_chunks
-# ------------------------------------------------------------------------------
-def search_chunks(query_embedding, query_text, top_n=5):
-    """
-    Searches the global EMBEDDINGS_DB for text chunks that best match the query.
+    candidate_scores = []
+    for idx in indices[0]:
+        if idx < len(TEXT_CHUNKS):
+            # Compute cosine similarity manually.
+            chunk_embedding = EMBEDDINGS_LIST[idx]
+            sem_sim = np.dot(query_embedding, np.array([chunk_embedding]).T)[0][0] / (
+                np.linalg.norm(query_embedding) * np.linalg.norm(chunk_embedding)
+            )
+            key_sim = simple_keyword_score(TEXT_CHUNKS[idx], query_text)
+            combined = alpha * sem_sim + (1 - alpha) * key_sim
+            candidate_scores.append((TEXT_CHUNKS[idx], combined))
     
-    :param query_embedding: Numpy array for the query.
-    :param query_text: The query text (for keyword matching).
-    :param top_n: Number of top results to return.
-    :return: List of tuples (chunk_id, chunk_text, combined_score).
-    """
-    results = []
-    for chunk_id, data in EMBEDDINGS_DB.items():
-        semantic = cosine_similarity(query_embedding, data["embedding"])
-        keyword = keyword_score(data["text"], query_text)
-        score = combined_score(semantic, keyword)
-        results.append((chunk_id, data["text"], score))
-    results.sort(key=lambda x: x[2], reverse=True)
-    return results[:top_n]
+    candidate_scores.sort(key=lambda x: x[1], reverse=True)
+    final_chunks = [chunk for chunk, score in candidate_scores[:final_k]]
+    return final_chunks
 
-# ------------------------------------------------------------------------------
-# Function: merge_chunks
-# ------------------------------------------------------------------------------
 def merge_chunks(chunks):
     """
-    Merges a list of text chunks into a single context string.
-    
-    :param chunks: A list of text chunks.
-    :return: A single string containing all chunks separated by newlines.
+    Merges a list of text chunks into a single coherent context string.
     """
     return "\n\n".join(chunks)

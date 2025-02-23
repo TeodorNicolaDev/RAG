@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from search import get_embedding_from_mistral
+from rag_pipeline.search import get_embedding_from_mistral
 
 def test_get_embedding_from_mistral():
     # Ensure the API key is set in the environment for testing.
